@@ -200,7 +200,7 @@ impl Handle {
     /// This function panics if there is no current reactor set.
     #[cfg(all(feature = "io-driver", not(loom)))]
     pub(super) fn current() -> Self {
-        context::ThreadContext::io_handle().expect("no current reactor")
+        context::io_handle().expect("no current reactor")
     }
 
     #[cfg(any(not(feature = "io-driver"), loom))]

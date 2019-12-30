@@ -1,5 +1,5 @@
 //! Thread local runtime context
-use crate::runtime::Spawner;
+use crate::runtime::{self, Spawner};
 use std::cell::RefCell;
 
 thread_local! {
@@ -13,30 +13,47 @@ pub(crate) struct ThreadContext {
     spawner: Spawner,
 
     /// Handles to the I/O drivers
-    io_handle: crate::runtime::io::Handle,
+    io_handle: runtime::io::Handle,
 
     /// Handles to the time drivers
-    time_handle: crate::runtime::time::Handle,
+    time_handle: runtime::time::Handle,
 
     /// Source of `Instant::now()`
-    clock: Option<crate::runtime::time::Clock>,
+    clock: Option<runtime::time::Clock>,
 }
 
-impl Default for ThreadContext {
-    fn default() -> Self {
-        ThreadContext {
-            spawner: Spawner::Shell,
-            #[cfg(all(feature = "io-driver", not(loom)))]
-            io_handle: None,
-            #[cfg(any(not(feature = "io-driver"), loom))]
-            io_handle: (),
-            #[cfg(all(feature = "time", not(loom)))]
-            time_handle: None,
-            #[cfg(any(not(feature = "time"), loom))]
-            time_handle: (),
-            clock: None,
-        }
-    }
+#[cfg(all(feature = "io-driver", not(loom)))]
+pub(crate) fn io_handle() -> runtime::io::Handle {
+    CONTEXT.with(|ctx| match *ctx.borrow() {
+        Some(ref ctx) => ctx.io_handle.clone(),
+        None => None,
+    })
+}
+
+#[cfg(all(feature = "time", not(loom)))]
+pub(crate) fn time_handle() -> runtime::time::Handle {
+    CONTEXT.with(|ctx| match *ctx.borrow() {
+        Some(ref ctx) => ctx.time_handle.clone(),
+        None => None,
+    })
+}
+
+#[cfg(feature = "rt-core")]
+pub(crate) fn spawn_handle() -> Option<Spawner> {
+    CONTEXT.with(|ctx| match *ctx.borrow() {
+        Some(ref ctx) => Some(ctx.spawner.clone()),
+        None => None,
+    })
+}
+
+#[cfg(all(feature = "test-util", feature = "time"))]
+pub(crate) fn clock() -> Option<runtime::time::Clock> {
+    CONTEXT.with(
+        |ctx| match ctx.borrow().as_ref().map(|ctx| ctx.clock.clone()) {
+            Some(Some(clock)) => Some(clock),
+            _ => None,
+        },
+    )
 }
 
 impl ThreadContext {
@@ -45,30 +62,16 @@ impl ThreadContext {
     /// [`ThreadContext`]: struct.ThreadContext.html
     pub(crate) fn new(
         spawner: Spawner,
-        io_handle: crate::runtime::io::Handle,
-        time_handle: crate::runtime::time::Handle,
-        clock: Option<crate::runtime::time::Clock>,
+        io_handle: runtime::io::Handle,
+        time_handle: runtime::time::Handle,
+        clock: Option<runtime::time::Clock>,
     ) -> Self {
         ThreadContext {
             spawner,
-            #[cfg(all(feature = "io-driver", not(loom)))]
             io_handle,
-            #[cfg(any(not(feature = "io-driver"), loom))]
-            io_handle,
-            #[cfg(all(feature = "time", not(loom)))]
-            time_handle,
-            #[cfg(any(not(feature = "time"), loom))]
             time_handle,
             clock,
         }
-    }
-
-    /// Clone the current [`ThreadContext`] if one is set, otherwise construct a new [`ThreadContext`].
-    ///
-    /// [`ThreadContext`]: struct.ThreadContext.html
-    #[allow(dead_code)]
-    pub(crate) fn clone_current() -> Self {
-        CONTEXT.with(|ctx| ctx.borrow().clone().unwrap_or_else(Default::default))
     }
 
     /// Set this [`ThreadContext`] as the current active [`ThreadContext`].
@@ -81,50 +84,18 @@ impl ThreadContext {
         })
     }
 
+    /*
     #[cfg(all(feature = "test-util", feature = "time", test))]
-    pub(crate) fn with_time_handle(mut self, handle: crate::runtime::time::Handle) -> Self {
+    pub(crate) fn with_time_handle(mut self, handle: runtime::time::Handle) -> Self {
         self.time_handle = handle;
         self
     }
+    */
 
     #[cfg(all(feature = "test-util", feature = "time", test))]
-    pub(crate) fn with_clock(mut self, clock: crate::runtime::time::Clock) -> Self {
+    pub(crate) fn with_clock(mut self, clock: runtime::time::Clock) -> Self {
         self.clock.replace(clock);
         self
-    }
-
-    #[cfg(all(feature = "io-driver", not(loom)))]
-    pub(crate) fn io_handle() -> crate::runtime::io::Handle {
-        CONTEXT.with(|ctx| match *ctx.borrow() {
-            Some(ref ctx) => ctx.io_handle.clone(),
-            None => None,
-        })
-    }
-
-    #[cfg(all(feature = "time", not(loom)))]
-    pub(crate) fn time_handle() -> crate::runtime::time::Handle {
-        CONTEXT.with(|ctx| match *ctx.borrow() {
-            Some(ref ctx) => ctx.time_handle.clone(),
-            None => None,
-        })
-    }
-
-    #[cfg(feature = "rt-core")]
-    pub(crate) fn spawn_handle() -> Option<Spawner> {
-        CONTEXT.with(|ctx| match *ctx.borrow() {
-            Some(ref ctx) => Some(ctx.spawner.clone()),
-            None => None,
-        })
-    }
-
-    #[cfg(all(feature = "test-util", feature = "time"))]
-    pub(crate) fn clock() -> Option<crate::runtime::time::Clock> {
-        CONTEXT.with(
-            |ctx| match ctx.borrow().as_ref().map(|ctx| ctx.clock.clone()) {
-                Some(Some(clock)) => Some(clock),
-                _ => None,
-            },
-        )
     }
 }
 

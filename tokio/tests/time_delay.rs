@@ -1,31 +1,50 @@
 #![warn(rust_2018_idioms)]
+#![cfg(all(feature = "full", feature = "test-util"))]
 
-use crate::time::tests::mock_clock::mock;
-use crate::time::{delay_until, Duration, Instant};
+use tokio::time::{self, Duration, Instant};
 use tokio_test::task;
 use tokio_test::{assert_pending, assert_ready};
 
 #[tokio::test]
 async fn immediate_delay() {
-    mock(|clock| {
-        // Create `Delay` that elapsed immediately.
-        let mut fut = task::spawn(delay_until(clock.now()));
+    time::pause();
 
-        // Ready!
-        assert_ready!(fut.poll());
+    let now = Instant::now();
 
-        // Turn the timer, it runs for the elapsed time
-        clock.turn_for(ms(1000));
+    // Create `Delay` that elapsed immediately.
+    let mut fut = task::spawn(time::delay_until(now));
 
-        // The time has not advanced. The `turn` completed immediately.
-        assert_eq!(clock.advanced(), ms(1000));
-    });
+    // Advance one millisecond to account for rounding
+    time::advance(ms(1)).await;
+
+    // Ready!
+    assert_ready!(fut.poll());
+
+    // Turn the timer, it runs for the elapsed time
+    time::advance(ms(1000)).await;
+
+    // The time has not advanced. The `turn` completed immediately.
+    assert_eq!(now.elapsed(), ms(1001));
 }
 
-/*
-#[test]
-fn delayed_delay_level_0() {
+#[tokio::test]
+async fn delayed_delay_level_0() {
+    time::pause();
+
     for &i in &[1, 10, 60] {
+        let now = Instant::now();
+
+        let mut fut = task::spawn(delay_until(now + ms(i)));
+
+        // The delay has not elapsed.
+        assert_pending!(fut.poll());
+
+        clock.turn();
+        assert_eq!(clock.advanced(), ms(i));
+
+        assert_ready!(fut.poll());
+
+        /*
         mock(|clock| {
             // Create a `Delay` that elapses in the future
             let mut fut = task::spawn(delay_until(clock.now() + ms(i)));
@@ -38,9 +57,11 @@ fn delayed_delay_level_0() {
 
             assert_ready!(fut.poll());
         });
+        */
     }
 }
 
+/*
 #[test]
 fn sub_ms_delayed_delay() {
     mock(|clock| {
