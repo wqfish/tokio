@@ -81,16 +81,12 @@ impl MockClock {
     {
         let park = self.time.mock_park();
         let timer = Driver::new(park, self.clock.clone());
-        let handle = timer.handle();
-        let ctx = context::ThreadContext::clone_current();
-        let _e = ctx
-            .with_clock(self.clock.clone())
-            .with_time_handle(Some(handle.clone()))
-            .enter();
 
-        let time = self.time.clone();
-        let mut handle = Handle::new(timer, time, self.clock.clone());
-        f(&mut handle)
+        context::with_time(Some(timer.handle().clone()), self.clock.clone(), || {
+            let time = self.time.clone();
+            let mut handle = Handle::new(timer, time, self.clock.clone());
+            f(&mut handle)
+        })
     }
 }
 

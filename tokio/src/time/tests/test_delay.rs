@@ -5,8 +5,8 @@ use crate::time::{delay_until, Duration, Instant};
 use tokio_test::task;
 use tokio_test::{assert_pending, assert_ready};
 
-#[tokio::test]
-async fn immediate_delay() {
+#[test]
+fn immediate_delay() {
     mock(|clock| {
         // Create `Delay` that elapsed immediately.
         let mut fut = task::spawn(delay_until(clock.now()));
@@ -22,7 +22,6 @@ async fn immediate_delay() {
     });
 }
 
-/*
 #[test]
 fn delayed_delay_level_0() {
     for &i in &[1, 10, 60] {
@@ -458,7 +457,6 @@ fn reset_future_delay_after_fire() {
         assert_ready!(fut.poll());
     });
 }
-*/
 
 fn ms(n: u64) -> Duration {
     Duration::from_millis(n)

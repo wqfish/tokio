@@ -95,11 +95,9 @@ cfg_stream! {
 
 mod wheel;
 
-/*
 #[cfg(test)]
 #[cfg(not(loom))]
 mod tests;
-*/
 
 // Re-export for convenience
 pub use std::time::Duration;
