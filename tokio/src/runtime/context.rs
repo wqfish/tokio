@@ -1,32 +1,43 @@
 //! Thread local runtime context
-use crate::runtime::{io, Spawner, time};
+use crate::runtime::{Handle, Spawner, time, io};
 
 use std::cell::RefCell;
 
 thread_local! {
-    static CONTEXT: RefCell<Option<ThreadContext>> = RefCell::new(None)
+    static CONTEXT: RefCell<Option<Handle>> = RefCell::new(None)
 }
 
-/// ThreadContext makes Runtime context accessible to each Runtime thread.
-#[derive(Debug, Clone)]
-pub(crate) struct ThreadContext {
-    /// Handles to the executor.
-    spawner: Spawner,
+/// Set the currently active runtime for the duration of the closure.
+pub(crate) fn enter<F>(handle: &Handle, f: F) -> R
+where
+    F: FnOnce() -> R
+{
+    struct Reset(Option<Handle>);
 
-    /// Handles to the I/O drivers
-    io_handle: io::Handle,
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CONTEXT.with(|ctx| {
+                *ctx.borrow_mut() = self.0.take();
+            });
+        }
+    }
 
-    /// Handles to the time drivers
-    time_handle: time::Handle,
+    let _reset = CONTEXT.with(|ctx| {
+        let ctx = ctx.borrow_mut();
+        let prev = ctx.take();
 
-    /// Source of `Instant::now()`
-    clock: Option<time::Clock>,
+        *ctx = Some(handle.clone());
+
+        Reset(prev)
+    });
+
+    f()
 }
 
 #[cfg(all(feature = "io-driver", not(loom)))]
 pub(crate) fn io_handle() -> io::Handle {
     CONTEXT.with(|ctx| match *ctx.borrow() {
-        Some(ref ctx) => ctx.io_handle.clone(),
+        Some(ref handle) => handle.io_handle.clone(),
         None => None,
     })
 }
@@ -34,7 +45,7 @@ pub(crate) fn io_handle() -> io::Handle {
 #[cfg(all(feature = "time", not(loom)))]
 pub(crate) fn time_handle() -> time::Handle {
     CONTEXT.with(|ctx| match *ctx.borrow() {
-        Some(ref ctx) => ctx.time_handle.clone(),
+        Some(ref handle) => handle.time_handle.clone(),
         None => None,
     })
 }
@@ -42,19 +53,17 @@ pub(crate) fn time_handle() -> time::Handle {
 #[cfg(feature = "rt-core")]
 pub(crate) fn spawn_handle() -> Option<Spawner> {
     CONTEXT.with(|ctx| match *ctx.borrow() {
-        Some(ref ctx) => Some(ctx.spawner.clone()),
+        Some(ref handle) => Some(handle.spawner.clone()),
         None => None,
     })
 }
 
 #[cfg(all(feature = "test-util", feature = "time"))]
 pub(crate) fn clock() -> Option<time::Clock> {
-    CONTEXT.with(
-        |ctx| match ctx.borrow().as_ref().map(|ctx| ctx.clock.clone()) {
-            Some(Some(clock)) => Some(clock),
-            _ => None,
-        },
-    )
+    CONTEXT.with(|ctx| match *ctx.borrow() {
+        Some(ref handle) => Some(handle.clock.clone()),
+        None => None,
+    })
 }
 
 // TODO: remove once testing time can be done with public APIs only.
@@ -77,15 +86,16 @@ where
         let mut ctx = cell.borrow_mut();
 
         let prev = ctx.take();
-        let mut next = prev.clone().unwrap_or_else(|| ThreadContext {
+        let mut next = prev.clone().unwrap_or_else(|| Handle {
             spawner: Spawner::Shell,
             io_handle: Default::default(),
             time_handle: Default::default(),
-            clock: None,
+            clock: Clock::new(),
+            blocking_spawner: Default::default()
         });
 
         next.time_handle = time;
-        next.clock = Some(clock);
+        next.clock = clock;
 
         *ctx = Some(next);
 
@@ -95,6 +105,7 @@ where
     f()
 }
 
+/*
 impl ThreadContext {
     /// Construct a new [`ThreadContext`]
     ///
@@ -140,3 +151,4 @@ impl Drop for ThreadContextDropGuard {
         });
     }
 }
+*/

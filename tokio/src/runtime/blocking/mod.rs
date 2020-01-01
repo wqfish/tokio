@@ -3,6 +3,37 @@
 //! shells. This isolates the complexity of dealing with conditional
 //! compilation.
 
+#[cfg(not(test))]
+cfg_blocking_impl! {
+    mod pool;
+    pub(crate) use pool::{spawn_blocking, BlockingPool, Spawner};
+
+    mod schedule;
+    mod shutdown;
+    mod task;
+
+    use crate::runtime::{self, Builder, io, time};
+
+    pub(crate) fn create_blocking_pool(
+        builder: &Builder,
+        spawner: &runtime::Spawner,
+        io: &io::Handle,
+        time: &time::Handle,
+        clock: &time::Clock,
+        thread_cap: usize,
+    ) -> BlockingPool {
+        BlockingPool::new(
+            builder,
+            spawner,
+            io,
+            time,
+            clock,
+            thread_cap)
+
+    }
+}
+
+#[cfg(test)]
 cfg_blocking_impl! {
     mod pool;
     pub(crate) use pool::{spawn_blocking, BlockingPool, Spawner};
@@ -35,7 +66,7 @@ cfg_blocking_impl! {
 cfg_not_blocking_impl! {
     use crate::runtime::{self, io, time, Builder};
 
-    #[derive(Debug, Clone)]
+    #[derive(Default, Debug, Clone)]
     pub(crate) struct BlockingPool {}
 
     pub(crate) use BlockingPool as Spawner;
